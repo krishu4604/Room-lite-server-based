@@ -10,6 +10,7 @@ from licensing.service import Denied, encode
 from licensing.jobs import Jobs
 from licensing.remote_ledger import CommandLedger
 from licensing.remote_rooms import RemoteRooms
+from licensing.remote_accounts import RemoteAccounts, login
 
 
 def fields(value, required, optional=()):
@@ -53,7 +54,8 @@ class RemoteController:
         self.jobs = jobs or Jobs(self.job_store, factory)
         # The admin dashboard and remote API must operate the very same jobs.
         self.jobs.store = self.job_store
-        self.rooms = RemoteRooms(store, factory)
+        self.accounts = RemoteAccounts(store)
+        self.rooms = RemoteRooms(store, factory, accounts=self.accounts)
         self.public_ids = public_ids
         self.ledger = CommandLedger(store)
         self.lock = threading.RLock()
@@ -62,6 +64,7 @@ class RemoteController:
                          'seat.apply':'room', 'seat.cancel':'room', 'jobs.start':'auto_chat',
                          'sid.resolve':'room'}
         self.features.update({op:'ktv' for op in ('ktv.join','ktv.refresh','ktv.finish','ktv.leave')})
+        self.features.update({'account.login':None,'account.import':None,'account.forget':None})
 
     def state(self, device):
         row = self.store.permission(device, active=True)
@@ -69,7 +72,8 @@ class RemoteController:
         feature = 'room' if 'room' in features else 'auto_chat' if 'auto_chat' in features else None
         groups = self.store.groups(device, feature=feature) if feature else []
         return {'protocol':2, 'server_boot':self.ledger.boot, 'features':features, 'groups':groups,
-                'rooms':self.rooms.status(device), 'jobs':self.jobs.status(device),
+                'rooms':self.rooms.status(device), 'jobs':self.jobs.status(device), 'accounts':self.accounts.metadata(device),
+                'account_protocol':1,
                 'capabilities':['room','chat','seats','auto_chat','sid_resolver','hybrid_audio','ktv','audio_route'],
                 'ktv_songs':__import__('backend.ktv_control',fromlist=['SONGS']).SONGS,
                 'unavailable':['public_room_resolver','live_catalog_search'],
@@ -121,6 +125,29 @@ class RemoteController:
         return result
 
     def _execute(self, device, op, args):
+        if op.startswith('account.'):
+            fields(args, ('slot','email','password') if op=='account.login' else ('slot','account') if op=='account.import' else ('slot',))
+            slot=args['slot']; self.accounts.key(device,slot)
+            with self.lock:
+                if any(r['device']==device and r['group'] is None and r['index']==slot for r in self.rooms.active()):
+                    raise Denied('Disconnect this account slot before replacing or forgetting it.')
+            now=int(time.time())
+            if op=='account.login' and self.store.increment_limit('login:'+device+':'+str(now//60),now+120)>5:
+                raise Denied('Too many login attempts. Wait a minute before trying again.')
+            if op=='account.login':
+                if not isinstance(args['email'],str) or not 3<=len(args['email'])<=254 or '@' not in args['email'] or not isinstance(args['password'],str) or not 1<=len(args['password'])<=256:
+                    raise Denied('Enter your account email and password.')
+                account=login(args['email'],args['password'])
+            elif op=='account.import':
+                from licensing.remote_accounts import clean
+                account=clean(args['account'])
+            with self.lock:
+                if any(r['device']==device and r['group'] is None and r['index']==slot for r in self.rooms.active()):
+                    raise Denied('Disconnect this account slot before replacing or forgetting it.')
+                if op=='account.forget':
+                    self.accounts.forget(device,slot)
+                    return {'account':{'slot':slot,'saved':False}}
+                return {'account':self.accounts.save(device,slot,account)}
         if op.startswith('ktv.'):
             fields(args, ('session','song') if op=='ktv.join' else ('session',))
             if not isinstance(args['session'],str) or len(args['session'])!=32:
@@ -147,6 +174,17 @@ class RemoteController:
             fields(args, ('sid',))
             return {'result':self.public_ids.resolve('sid', str(number(args['sid'])))}
         if op == 'room.join':
+            if 'slot' in args:
+                fields(args, ('slot','room','run_seconds'), ('password',))
+                room=number(args['room']); seconds=args['run_seconds']; slot=args['slot']
+                self.accounts.key(device,slot)
+                if type(seconds) is not int or not 60<=seconds<=3600 or not isinstance(args.get('password',''),str) or len(args.get('password',''))>256:
+                    raise Denied('Invalid room password or session duration.')
+                with self.lock:
+                    account=self.accounts.get(device,slot)
+                    from backend.room_credentials import gateway_credentials
+                    self._admit({gateway_credentials(account)[0]})
+                    return self.rooms.start(device,None,slot,account,room,args.get('password',''),seconds)
             fields(args, ('group','index','room','run_seconds'), ('password',))
             room = number(args['room'])
             seconds = args['run_seconds']

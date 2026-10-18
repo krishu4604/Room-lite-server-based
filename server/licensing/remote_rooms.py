@@ -9,8 +9,9 @@ from licensing.service import Denied
 
 
 class RemoteRooms:
-    def __init__(self, store, factory, limit=4):
+    def __init__(self, store, factory, limit=4, accounts=None):
         self.store, self.factory, self.limit = store, factory, limit
+        self.accounts=accounts
         self.rows = {}
         self.lock = threading.RLock()
         self.loop = None
@@ -60,7 +61,13 @@ class RemoteRooms:
     def _authorize(self, row):
         if row['stop'].is_set() or time.time() >= row['until']:
             raise Denied('Room session stopped or duration expired.')
-        self.store.job_permission(row['device'], row['group'], feature='room', active=False)
+        if row['group'] is None:
+            self.store.permission(row['device'],'room',False)
+            account=self.accounts.get(row['device'],row['index'])
+            if account['uid'] != row['uid']:
+                raise Denied('Account slot changed. Reconnect explicitly.')
+        else:
+            self.store.job_permission(row['device'], row['group'], feature='room', active=False)
 
     async def _run(self, row, account, room, password):
         service = self.factory()

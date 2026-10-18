@@ -4,6 +4,23 @@ Backend-only deployment package for the hybrid Room Lite app. Android sources,
 SDK binaries, APKs, account exports, private keys and credentials are excluded.
 Account creation is not included.
 
+## Personal account login (BugX Panel 0.3.0)
+
+Accounts now has four device-owned login slots, just as in the original client.
+The phone submits a user-entered email/password over pinned HTTPS with device
+proof. The fixed email-login request executes on the server; passwords are not
+persisted. Account tokens are encrypted in the database's `remote_accounts`
+collection and never returned to the APK. Each slot is scoped to its activation
+device. Single-account JSON import and forgetting are supported too.
+
+Deploy this update to the existing dedicated service before using the matching
+0.3.0 APK. No new Atlas cluster, environment variables or master-secret changes
+are required. Approve the phone as usual, open Accounts and log in, then select
+that slot in Room. Personal room entry no longer requires an uploaded account
+group. Assigned groups remain in use for Auto Chat only. An active slot must be
+disconnected before replacement/removal. Live vendor authentication and room
+operation still require explicit user testing; fake-gateway tests are not proof.
+
 This server owns subscriptions, encrypted account assignments, room gateway
 sessions, chat, seats, KTV queue controls and bounded Auto Chat jobs. Android
 retains its RTC/microphone/music engine. Client-side media checks do not make a
