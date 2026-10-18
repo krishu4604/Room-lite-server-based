@@ -72,7 +72,30 @@ deployment; no free or continuous-uptime guarantee is implied.
 These are safety limits, not load-tested concurrency guarantees. Free services
 can sleep or restart. Atlas persists account/subscription records, not sockets.
 
-Offline verification before publishing: 57 backend tests, 35 remote/KTV/security
+Offline verification before publishing: 57 backend tests, 43 remote/KTV/security
 and source-boundary tests, plus five host Java media test programs passed in the
 development project. Test fixtures are not needed at runtime and are excluded.
 No live room/audio/KTV, production load or phone acceptance test is claimed.
+
+## Safe Atlas startup diagnostics
+
+Startup failures now include a fixed stage and category, for example:
+
+    Atlas initialization failed [stage=PING; category=AUTHENTICATION_FAILED].
+
+Stages: CLIENT_SETUP (URI/options/SRV setup), PING (reachability and database
+authentication), STORE_SETUP (indexes and encrypted application material).
+
+Categories distinguish URI_INVALID, DNS_LOOKUP_FAILED, TLS_FAILED,
+CONFIGURATION_OR_DNS, SERVER_SELECTION_TIMEOUT, NETWORK_TIMEOUT,
+CONNECTION_FAILED, AUTHENTICATION_FAILED, DATABASE_PERMISSION_DENIED,
+ATLAS_REQUEST_REJECTED, INDEX_OR_DATA_CONFLICT, INDEX_CONFIGURATION_CONFLICT,
+DATABASE_OPERATION_FAILED, KEY_UNLOCK_FAILED, CLIENT_TYPE_ERROR and
+INITIALIZATION_ERROR.
+
+Only allowlisted text is emitted. No URI, username, password, host, driver
+message/details or key material is included. A timeout alone does not prove an
+allowlist error; Atlas request-rejection code 8000 alone does not identify the
+cause. TLS validation and fail-closed startup remain enabled. Restore the matching
+master secret/database backup on KEY_UNLOCK_FAILED; do not delete keys or rotate
+the master secret as a troubleshooting shortcut.

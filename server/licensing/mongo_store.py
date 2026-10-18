@@ -6,12 +6,62 @@ import os
 import re
 import secrets
 import time
+import socket
+import ssl
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pymongo import MongoClient, ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import (DuplicateKeyError, InvalidURI, ConfigurationError,
+                            OperationFailure, ServerSelectionTimeoutError,
+                            ConnectionFailure, NetworkTimeout)
+from dns.exception import DNSException
 from licensing.service import Store, Denied, LEASE_SECONDS, REMOTE_ACTIONS, b64, unb64, encode
+
+
+class AtlasKeyUnlockError(RuntimeError):
+    """Stored material could not be opened; no destructive recovery is attempted."""
+
+
+def startup_diagnostic(error):
+    """Only fixed categories/guidance. Never stringify driver exceptions.
+
+    Driver messages/details/addresses can contain credentials and server metadata.
+    A timeout does not prove an IP allowlist error, and Atlas code 8000 alone does
+    not establish bad authentication.
+    """
+    if isinstance(error, AtlasKeyUnlockError):
+        return "KEY_UNLOCK_FAILED", "Restore the original master secret and matching database/key backup. No keys were replaced."
+    if isinstance(error, InvalidURI):
+        return "URI_INVALID", "Check the Atlas SRV URI syntax and percent-encoding of database credentials privately."
+    if isinstance(error, (socket.gaierror, DNSException)):
+        return "DNS_LOOKUP_FAILED", "Check the cluster hostname and SRV DNS resolution from the hosting service."
+    if isinstance(error, ssl.SSLError):
+        return "TLS_FAILED", "Check the certificate trust chain and network path. TLS verification remains enabled."
+    if isinstance(error, ConfigurationError):
+        return "CONFIGURATION_OR_DNS", "Check SRV DNS, URI options and driver configuration. The raw driver message is intentionally hidden."
+    if isinstance(error, ServerSelectionTimeoutError):
+        return "SERVER_SELECTION_TIMEOUT", "No suitable Atlas server was reached before timeout. Check cluster availability, hostname, network access and TLS; this is not proof of an IP mismatch."
+    if isinstance(error, NetworkTimeout):
+        return "NETWORK_TIMEOUT", "An Atlas network operation timed out. Check hosting connectivity and cluster availability."
+    if isinstance(error, ConnectionFailure):
+        return "CONNECTION_FAILED", "The Atlas connection failed. Check network access, cluster availability and TLS."
+    if isinstance(error, DuplicateKeyError):
+        return "INDEX_OR_DATA_CONFLICT", "Existing database data conflicts with a unique index or write. Inspect it without deleting collections."
+    if isinstance(error, OperationFailure):
+        code = error.code
+        if code == 18:
+            return "AUTHENTICATION_FAILED", "Atlas rejected database authentication. Check the database user, password encoding and authSource privately."
+        if code == 13:
+            return "DATABASE_PERMISSION_DENIED", "The database user lacks a required operation. Check readWrite access on the configured application database."
+        if code in (85, 86):
+            return "INDEX_CONFIGURATION_CONFLICT", "Existing index configuration differs from the application. Review indexes without deleting data."
+        if code == 8000:
+            return "ATLAS_REQUEST_REJECTED", "Atlas rejected a request. Check database credentials, permissions and URI options; this code alone does not identify the cause."
+        return "DATABASE_OPERATION_FAILED", "An Atlas database operation failed. Check database roles, index compatibility and service limits."
+    if isinstance(error, TypeError):
+        return "CLIENT_TYPE_ERROR", "A startup argument or library interface was incompatible. Check the deployed runtime and dependency versions."
+    return "INITIALIZATION_ERROR", "Unexpected startup failure. Inspect the indicated stage with private diagnostics; no raw exception is logged."
 
 
 def expiry(seconds):
@@ -30,15 +80,25 @@ class MongoStore(Store):
             raise RuntimeError("Set a valid Atlas SRV connection URI privately in MONGODB_URI.")
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,38}", database):
             raise RuntimeError("MONGODB_DATABASE must be a valid application database name.")
+        client = None
+        stage = "CLIENT_SETUP"
         try:
             client = MongoClient(uri, tls=True, tlsAllowInvalidCertificates=False, tlsAllowInvalidHostnames=False,
                                  serverSelectionTimeoutMS=10000, connectTimeoutMS=10000, socketTimeoutMS=15000,
                                  maxPoolSize=20, retryWrites=True, appname="RajputEliteControl")
+            stage = "PING"
             client.admin.command("ping")
+            stage = "STORE_SETUP"
             return cls(client, database, master)
-        except Exception:
-            # Driver exception text may include host/user/URI details. Never propagate it to logs.
-            raise RuntimeError("Atlas initialization failed. Check credentials, IP access, permissions and the original master secret.") from None
+        except Exception as error:
+            category, guidance = startup_diagnostic(error)
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass  # Cleanup must not expose a secondary driver exception.
+            raise RuntimeError("Atlas initialization failed [stage=%s; category=%s]. %s" %
+                               (stage, category, guidance)) from None
 
     def __init__(self, client, database, master):
         if len(master) < 32:
@@ -71,7 +131,7 @@ class MongoStore(Store):
             self.cipher = AESGCM(unb64(material["accounts"]))
             self.admin_secret = material["session"]
         except Exception:
-            raise RuntimeError("Cannot unlock stored server keys. Restore the original ROOMLITE_MASTER_SECRET; keys were not replaced.") from None
+            raise AtlasKeyUnlockError("Cannot unlock stored server keys. Restore the original ROOMLITE_MASTER_SECRET; keys were not replaced.") from None
 
     @staticmethod
     def row(doc):
