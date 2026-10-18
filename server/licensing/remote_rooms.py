@@ -249,6 +249,10 @@ class RemoteRooms:
                     task.cancel()
                 if pending:
                     await asyncio.gather(*pending, return_exceptions=True)
+                # Cancelling to_thread does not stop its database worker. Drain
+                # those workers before closing the loop/store (notably SQLite
+                # on Windows, which otherwise leaves an in-use database file).
+                await self.loop.shutdown_default_executor(timeout=4)
             # Shutdown/test only; allow bounded disconnect finalizers to finish.
             with contextlib.suppress(Exception):
                 asyncio.run_coroutine_threadsafe(drain(), self.loop).result(timeout=6)
