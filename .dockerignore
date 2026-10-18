@@ -1,0 +1,17 @@
+.git
+.work
+dist
+android
+tools
+tests
+docs
+**/__pycache__
+**/*.pyc
+**/*.pem
+**/*.key
+**/*.p12
+**/*.sqlite*
+**/.env*
+public-config.local.json
+private
+data

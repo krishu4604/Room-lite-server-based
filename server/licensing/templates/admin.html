@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Room Lite · Control</title>
+  <link rel="stylesheet" href="{{ url_for('admin.static', filename='admin.css') }}">
+  <script src="{{ url_for('admin.static', filename='admin.js') }}" defer></script>
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-icon">R<span>·</span></div><p class="eyebrow">ROOM LITE CONTROL</p>
+      <h1>Your rooms.<br>Your rules.</h1><p class="muted">Manage access, account groups and subscriptions in one place.</p>
+      <form id="login-form">
+        <label>Username<input id="username" autocomplete="username" value="owner" required></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary full" type="submit">Sign in <span>→</span></button>
+      </form>
+      <p id="login-error" role="alert" class="error"></p><p class="footnote">Private owner dashboard · Device access is approved by you.</p>
+    </div>
+  </div>
+  <div id="app" class="app hidden">
+    <aside>
+      <div class="brand"><div class="brand-icon small">R<span>·</span></div><div>Room Lite<small>CONTROL CENTER</small></div></div>
+      <div class="nav-label">WORKSPACE</div>
+      <nav>
+        <button class="nav active" data-page="devices"><span>◈</span> Devices <b id="pending-count">0</b></button>
+        <button class="nav" data-page="groups"><span>▦</span> Account groups</button>
+        <button class="nav" data-page="jobs"><span>▷</span> Live jobs</button>
+        <button class="nav" data-page="audit"><span>≡</span> Activity</button>
+        <button class="nav" data-page="setup"><span>⚙</span> App connection</button>
+      </nav>
+      <div class="aside-bottom"><span class="online-dot"></span> Owner access <button id="logout" class="text-button">Sign out</button></div>
+    </aside>
+    <main>
+      <header><div><p class="eyebrow">ROOM LITE / ADMINISTRATION</p><h1 id="page-title">Devices & subscriptions</h1><p id="page-description" class="muted">Approve the right devices. Give each one exactly the access it needs.</p></div><button id="refresh" class="secondary">↻ Refresh</button></header>
+      <div id="notice" class="notice hidden" role="status"></div>
+      <section class="stats">
+        <div class="stat"><span>Total devices</span><strong id="total-devices">0</strong><small>Registered activation keys</small></div>
+        <div class="stat"><span>Active subscriptions</span><strong id="active-devices">0</strong><small>Approved and within expiry</small></div>
+        <div class="stat"><span>Awaiting approval</span><strong id="pending-devices">0</strong><small>Ready for your review</small></div>
+        <div class="stat"><span>Running panels</span><strong id="running-jobs">0</strong><small>Server-managed Auto Chat</small></div>
+      </section>
+      <section id="devices-page" class="page">
+        <div class="card"><div class="card-head"><div><h2>Device access</h2><p class="muted">A subscription belongs to the device's activation key.</p></div><div class="filters"><input id="search" placeholder="Search activation ID…" aria-label="Search devices"><select id="status-filter" aria-label="Filter status"><option value="all">All statuses</option><option>pending</option><option>active</option><option>expired</option><option>revoked</option></select></div></div>
+          <div class="table-scroll"><table><thead><tr><th>Device</th><th>Subscription</th><th>Features</th><th>Expires</th><th>Groups</th><th></th></tr></thead><tbody id="device-rows"></tbody></table></div>
+          <div id="devices-empty" class="empty hidden"><div>◈</div><h3>No devices yet</h3><p>Connect the licensed app to this server. Its activation key will appear here for approval.</p></div>
+        </div>
+      </section>
+      <section id="groups-page" class="page hidden">
+        <div class="split"><div class="card"><div class="card-head"><div><h2>Account groups</h2><p class="muted">Assign different groups to the four phone panels.</p></div></div><div id="group-cards" class="group-cards"></div></div>
+          <div class="card upload-card"><p class="eyebrow">ENCRYPTED SERVER STORAGE</p><h2>Add an account group</h2><p class="muted">Upload a Room Lite account export. The phone receives group names and counts; credentials stay here.</p>
+            <form id="upload-form"><label>Group ID<input name="id" placeholder="batch-1" pattern="[a-zA-Z0-9_-]{1,48}" required maxlength="48"></label><label>Display name<input name="name" placeholder="Main account group" required maxlength="80"></label><label class="file-label">Accounts JSON · 1–64 accounts<input name="accounts" type="file" accept=".json,application/json" required></label><button type="submit" class="primary full">Upload group</button></form>
+            <p class="footnote">Using an existing group ID replaces its file. Stop that group's jobs first.</p>
+          </div></div>
+      </section>
+      <section id="jobs-page" class="page hidden"><div class="card"><div class="card-head"><div><h2>Auto Chat panels</h2><p class="muted">Started explicitly from the phone. Inspect progress or stop a panel here.</p></div></div><div id="job-cards" class="job-cards"></div></div></section>
+      <section id="audit-page" class="page hidden"><div class="card"><div class="card-head"><div><h2>Owner activity</h2><p class="muted">Recent administrative changes. Account tokens are never logged here.</p></div></div><div id="audit-list" class="audit-list"></div></div></section>
+      <section id="setup-page" class="page hidden"><div class="card setup-card"><p class="eyebrow">ANDROID CONNECTION</p><h2>Connect your licensed app</h2><p class="muted">After deployment, these public values configure the Android release. Keep private keys and passwords on the server.</p>
+        <label>API origin<div class="copy-row"><input id="api-origin" readonly><button id="copy-origin" class="secondary">Copy</button></div></label>
+        <label>Server verification public key<div class="copy-row"><textarea id="server-key" readonly rows="4"></textarea><button id="copy-key" class="secondary">Copy</button></div></label>
+        <div class="callout"><h3>SSL pinning</h3><p>Configure the real primary and backup TLS public-key pins in the APK build. This public verification key signs subscriptions; it is separate from the HTTPS certificate key.</p></div>
+        <div class="callout"><h3>One active backend</h3><p>Choose one server for the phone app. Independent Render and Railway deployments have separate devices and keys unless you deliberately migrate the private data. Run one worker and one replica per server.</p></div>
+      </div></section>
+      <footer>Room Lite Control <span id="last-updated">Waiting for server</span></footer>
+    </main>
+  </div>
+  <dialog id="device-dialog"><form id="device-form"><div class="dialog-header"><div><p class="eyebrow">DEVICE SUBSCRIPTION</p><h2>Manage access</h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Close">×</button></div><p id="device-id" class="device-id"></p>
+      <label>Plan preset<select id="plan"><option value="basic">Room Basic</option><option value="audio">Audio & music</option><option value="auto">Auto Chat</option><option value="complete">Complete</option><option value="custom">Custom features</option></select></label>
+      <div id="feature-options" class="feature-options"></div><p class="footnote">Required dependencies are included when saving: music/effects need audio; audio needs room.</p>
+      <div class="form-row"><label>Duration · days<input id="days" type="number" min="1" max="3660" value="30" required></label><label>Expiry action<select id="extend"><option value="false">Start from today</option><option value="true">Extend current expiry</option></select></label></div>
+      <div class="group-assignment"><h3>Assigned account groups</h3><div id="assignment-options"></div><button id="save-groups" type="button" class="secondary">Save group assignments</button></div>
+      <p id="dialog-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="revoke-device" class="danger">Revoke access</button><button type="submit" class="primary">Save subscription</button></div>
+  </form></dialog>
+</body>
+</html>

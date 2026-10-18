@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: room-lite-remote
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: roomlite_remote
+      - key: ROOMLITE_MASTER_SECRET
+        sync: false
+      - key: ROOMLITE_ADMIN_PASSWORD
+        sync: false

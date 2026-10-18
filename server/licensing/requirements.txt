@@ -1,0 +1,5 @@
+Flask>=3.1,<4
+cryptography>=45,<49
+pymongo>=4.10,<5
+dnspython>=2.6,<3
+gunicorn>=23,<24; platform_system != "Windows"
